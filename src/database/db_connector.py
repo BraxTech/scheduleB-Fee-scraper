@@ -18,9 +18,8 @@ def init_db():
     """Initialize database connection pool"""
     global pool
     try:
-        # Railway provides DATABASE_URL, but we can fall back to individual vars
+        # Try to use DATABASE_URL first (external connection)
         database_url = os.getenv('DATABASE_URL')
-        
         if database_url:
             pool = SimpleConnectionPool(
                 minconn=1,
@@ -28,6 +27,7 @@ def init_db():
                 dsn=database_url
             )
         else:
+            # Fallback to individual credentials
             pool = SimpleConnectionPool(
                 minconn=1,
                 maxconn=10,
