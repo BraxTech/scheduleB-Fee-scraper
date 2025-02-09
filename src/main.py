@@ -13,9 +13,24 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 def is_valid_record(row):
-    """Validate that required fields are not empty"""
-    required_fields = ["cpt/hcpc_code", "medicare_location"]
-    return all(row.get(field) and str(row.get(field)).strip() for field in required_fields)
+    """Validate that record has a valid CPT/HCPC code and isn't a header row"""
+    if not row.get("cpt/hcpc_code"):
+        return False
+    
+    # Check for header-like content
+    header_indicators = [
+        'Site of Service Amount',
+        'Multiple Surgery Indicator',
+        'Service Amount',
+        'Surgery Indicator'
+    ]
+    
+    # Check if any values contain header indicators
+    for value in row.values():
+        if isinstance(value, str) and any(indicator in value for indicator in header_indicators):
+            return False
+    
+    return True
 
 def main():
     global logger
@@ -45,8 +60,10 @@ def main():
                 
                 try:
                     tables = extract_pdf_data(url)
+                    logger.info(f"Raw tables extracted: {len(tables) if tables else 0} rows")
+                    
                     if not tables:
-                        logger.error("No data found in PDF: " + url)
+                        logger.error(f"No data found in PDF: {url}")
                         failed_pdfs.append({"url": url, "error": "No data found"})
                         continue
                     
@@ -84,20 +101,12 @@ def main():
                                     COALESCE(e.site_of_service_amount,'') != COALESCE(i.site_of_service_amount,'')
                                 ) THEN 'changed'
                                 ELSE 'duplicate'
-                            END as status,
-                            e."cpt/hcpc_code" as existing_cpt,
-                            e.modifier as existing_mod,
-                            e.medicare_location as existing_loc,
-                            e.global_surgery_indicator as existing_global,
-                            e.multiple_surgery_indicator as existing_multi,
-                            e.prevailing_charge_amount as existing_charge,
-                            e.fee_schedule_amount as existing_fee,
-                            e.site_of_service_amount as existing_site
+                            END as status
                         FROM input_records i
                         LEFT JOIN pa_wc_scheduleb_fees e ON 
                             e."cpt/hcpc_code" = i."cpt/hcpc_code"
                             AND (e.modifier IS NOT DISTINCT FROM i.modifier)
-                            AND e.medicare_location = i.medicare_location;
+                            AND (e.medicare_location IS NOT DISTINCT FROM i.medicare_location);
                     """
                     
                     # Check all records at once
@@ -110,10 +119,7 @@ def main():
                     
                     for record_num, result in enumerate(results, 1):
                         try:
-                            (cpt_code, modifier, location, status, 
-                             existing_cpt, existing_mod, existing_loc,
-                             existing_global, existing_multi, existing_charge,
-                             existing_fee, existing_site) = result
+                            (cpt_code, modifier, location, status) = result
 
                             # Find matching row with better error handling
                             matching_rows = [r for r in tables 
@@ -126,12 +132,6 @@ def main():
                                 continue
                             
                             row = matching_rows[0]
-                            
-                            # Add validation check
-                            if not is_valid_record(row):
-                                logger.error(f"Skipping invalid record: {row}")
-                                continue
-                            
                             logger.info(f"Processing ({record_num}/{pdf_records}): {row}")
                             
                             if status == 'duplicate':

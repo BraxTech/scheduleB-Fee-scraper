@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 from psycopg2.pool import SimpleConnectionPool
 import logging
+import json
 
 # Load environment variables
 load_dotenv()
@@ -199,16 +200,87 @@ def insert_many_fee_schedules(data_list, batch_size=1000):
 
     with get_db_connection() as conn:
         try:
-            for i in range(0, len(data_list), batch_size):
-                batch = data_list[i:i + batch_size]
-                records_inserted = batch_insert_records(batch)
-                logging.info(f"Inserted {records_inserted} records in batch")
+            cur = conn.cursor()
+            
+            # Check for exact duplicates across all columns
+            check_query = """
+                SELECT "cpt/hcpc_code", modifier, medicare_location,
+                       global_surgery_indicator, multiple_surgery_indicator,
+                       prevailing_charge_amount, fee_schedule_amount,
+                       site_of_service_amount
+                FROM pa_wc_scheduleb_fees 
+                WHERE ("cpt/hcpc_code", 
+                      COALESCE(modifier, ''),
+                      COALESCE(medicare_location, ''),
+                      COALESCE(global_surgery_indicator, ''),
+                      COALESCE(multiple_surgery_indicator, ''),
+                      COALESCE(prevailing_charge_amount, ''),
+                      COALESCE(fee_schedule_amount, ''),
+                      COALESCE(site_of_service_amount, ''))
+                IN (SELECT DISTINCT 
+                       "cpt/hcpc_code",
+                       COALESCE(modifier, ''),
+                       COALESCE(medicare_location, ''),
+                       COALESCE(global_surgery_indicator, ''),
+                       COALESCE(multiple_surgery_indicator, ''),
+                       COALESCE(prevailing_charge_amount, ''),
+                       COALESCE(fee_schedule_amount, ''),
+                       COALESCE(site_of_service_amount, '')
+                    FROM json_to_recordset(%s) AS x(
+                        "cpt/hcpc_code" text,
+                        modifier text,
+                        medicare_location text,
+                        global_surgery_indicator text,
+                        multiple_surgery_indicator text,
+                        prevailing_charge_amount text,
+                        fee_schedule_amount text,
+                        site_of_service_amount text
+                    ));
+            """
+            
+            cur.execute(check_query, (json.dumps(data_list),))
+            existing_records = set(tuple(r) for r in cur.fetchall())
+            
+            # Filter out exact duplicates
+            new_records = [
+                record for record in data_list 
+                if tuple(record.get(col, '') or '' for col in [
+                    'cpt/hcpc_code', 'modifier', 'medicare_location',
+                    'global_surgery_indicator', 'multiple_surgery_indicator',
+                    'prevailing_charge_amount', 'fee_schedule_amount',
+                    'site_of_service_amount'
+                ]) not in existing_records
+            ]
+            
+            if new_records:
+                insert_query = """
+                    INSERT INTO pa_wc_scheduleb_fees (
+                        "cpt/hcpc_code", modifier, medicare_location,
+                        global_surgery_indicator, multiple_surgery_indicator,
+                        prevailing_charge_amount, fee_schedule_amount,
+                        site_of_service_amount
+                    ) 
+                    SELECT * FROM json_to_recordset(%s) AS x(
+                        "cpt/hcpc_code" text,
+                        modifier text,
+                        medicare_location text,
+                        global_surgery_indicator text,
+                        multiple_surgery_indicator text,
+                        prevailing_charge_amount text,
+                        fee_schedule_amount text,
+                        site_of_service_amount text
+                    );
+                """
+                cur.execute(insert_query, (json.dumps(new_records),))
+                conn.commit()
+                logging.info(f"Inserted {len(new_records)} new records")
+            else:
+                logging.info("No new records to insert")
+                
         except Exception as e:
             logging.error(f"Error in batch insert: {e}")
             conn.rollback()
             raise
-        else:
-            conn.commit()
 
 if __name__ == "__main__":
     # Test the database connection
