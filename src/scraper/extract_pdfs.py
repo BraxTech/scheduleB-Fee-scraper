@@ -4,13 +4,29 @@ from io import BytesIO
 from typing import List, Dict, Any
 
 def normalize_key(key: str) -> str:
-    """Normalize dictionary keys by removing newlines and standardizing format."""
-    return key.replace('\n', '_').replace(' ', '_').lower()
+    """Map PDF column names to database column names."""
+    key = key.replace('\n', ' ').strip()
+    
+    # Map of PDF column names to database column names
+    column_map = {
+        'CPT/HCPC Code': 'cpt/hcpc_code',
+        'Modifier': 'modifier',
+        'Medicare Location': 'medicare_location',
+        'Global Surgery Indicator': 'global_surgery_indicator',
+        'Multiple Surgery Indicator': 'multiple_surgery_indicator',
+        'Prevailing Charge Amount': 'prevailing_charge_amount',
+        'Fee Schedule Amount': 'fee_schedule_amount',
+        'Site of Service Amount': 'site_of_service_amount'
+    }
+    
+    return column_map.get(key, key)
 
 def normalize_value(value: str) -> Any:
     """Normalize cell values by converting special cases to None."""
-    value = value.strip()
-    if value in ['X', '']:  # Both 'X' and empty strings become None
+    if value is None:
+        return None
+    value = str(value).strip()
+    if value in ['X', '', 'N/A', '-']:
         return None
     return value
 
@@ -30,20 +46,36 @@ def extract_pdf_data(url: str) -> List[Dict[str, Any]]:
         
         pdf_bytes = BytesIO(response.content)
         all_tables = []
+        total_rows = 0
         
         with pdfplumber.open(pdf_bytes) as pdf:
-            for page in pdf.pages:
-                tables = page.extract_tables()
-                if tables:
-                    for table in tables:
-                        if table and table[0]:
-                            headers = [normalize_key(str(h).strip()) for h in table[0]]
-                            
-                            for row in table[1:]:
-                                row_data = [normalize_value(str(cell)) if cell is not None else None for cell in row]
-                                row_dict = dict(zip(headers, row_data))
-                                all_tables.append(row_dict)
+            # Only look at first page for headers
+            first_page = pdf.pages[0]
+            tables = first_page.extract_tables()
+            
+            if tables and tables[0] and tables[0][0]:
+                # Get headers from first table and map to database column names
+                headers = [normalize_key(str(h)) for h in tables[0][0]]
+                
+                # Process all pages with these headers
+                for page in pdf.pages:
+                    page_tables = page.extract_tables()
+                    if page_tables:
+                        for table in page_tables:
+                            if table and len(table) > 1:  # Skip header row
+                                for row in table[1:]:
+                                    total_rows += 1
+                                    if len(row) == len(headers):
+                                        # Keep raw values, just convert None to empty string
+                                        row_data = [str(cell).strip() if cell is not None else '' for cell in row]
+                                        row_dict = dict(zip(headers, row_data))
+                                        all_tables.append(row_dict)
         
+        if all_tables:
+            print(f"Found {len(all_tables)}/{total_rows} valid records in PDF")
+        else:
+            print(f"No valid records found out of {total_rows} total rows in PDF")
+            
         return all_tables
             
     except requests.RequestException as e:

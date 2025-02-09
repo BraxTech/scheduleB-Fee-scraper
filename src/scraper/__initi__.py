@@ -1,1 +1,0 @@
-from src.scraper.fetch_pdfs import fetch_part_b_pdf_urls
