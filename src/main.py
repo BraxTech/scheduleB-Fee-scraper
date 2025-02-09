@@ -12,6 +12,11 @@ def signal_handler(signum, frame):
     close_db()
     sys.exit(0)
 
+def is_valid_record(row):
+    """Validate that required fields are not empty"""
+    required_fields = ["cpt/hcpc_code", "medicare_location"]
+    return all(row.get(field) and str(row.get(field)).strip() for field in required_fields)
+
 def main():
     global logger
     logger = setup_logger()
@@ -121,6 +126,12 @@ def main():
                                 continue
                             
                             row = matching_rows[0]
+                            
+                            # Add validation check
+                            if not is_valid_record(row):
+                                logger.error(f"Skipping invalid record: {row}")
+                                continue
+                            
                             logger.info(f"Processing ({record_num}/{pdf_records}): {row}")
                             
                             if status == 'duplicate':

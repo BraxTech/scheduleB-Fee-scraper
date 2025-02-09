@@ -1,0 +1,4 @@
+[cron.weekly-scrape]
+schedule = "0 3 * * 1"
+command = "python src/main.py"
+timezone = "America/New_York" 
