@@ -18,15 +18,25 @@ def init_db():
     """Initialize database connection pool"""
     global pool
     try:
-        pool = SimpleConnectionPool(
-            minconn=1,
-            maxconn=10,
-            host=os.getenv('PGHOST'),
-            database=os.getenv('PGDATABASE'),
-            user=os.getenv('PGUSER'),
-            password=os.getenv('PGPASSWORD'),
-            port=os.getenv('PGPORT', 5432)
-        )
+        # Railway provides DATABASE_URL, but we can fall back to individual vars
+        database_url = os.getenv('DATABASE_URL')
+        
+        if database_url:
+            pool = SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                dsn=database_url
+            )
+        else:
+            pool = SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                host=os.getenv('PGHOST'),
+                database=os.getenv('PGDATABASE'),
+                user=os.getenv('PGUSER'),
+                password=os.getenv('PGPASSWORD'),
+                port=os.getenv('PGPORT', 5432)
+            )
         logging.info("Database connection pool established.")
         return pool
     except Exception as e:
