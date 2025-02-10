@@ -9,7 +9,7 @@ This project scrapes and maintains an up-to-date database of Schedule B fee data
 - Data storage in PostgreSQL with duplicate detection.
 - Comprehensive logging system to track operations and errors.
 - Configurable through environment variables.
-- Automated daily updates via cron job.
+- Automated weekly updates via cron job.
 
 
 
