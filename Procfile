@@ -1,1 +1,1 @@
-worker: python src/main.py 
+worker: pip install -e . && python src/main.py 
